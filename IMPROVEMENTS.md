@@ -1,10 +1,10 @@
-# Code Improvements - Must Haves
+# Code Improvements
 
 ## Critical Issues I'd Fix First
 
 ### Error Handling is Completely Missing
 
-The biggest problem I see is that workers have zero error handling. If anything goes wrong - database timeout, network issue, invalid data - the entire worker just dies. I've seen this pattern kill production systems.
+The biggest problem I see is that workers have zero error handling. If anything goes wrong - database timeout, network issue, invalid data - the entire worker just dies. 
 
 In my experience, database operations fail all the time. Network hiccups, connection pool exhaustion, query timeouts - it's just reality. Without try-catch blocks, one bad message kills a worker permanently. If you're processing thousands of messages and workers keep dying, you'll eventually have zero workers left and everything stops.
 
@@ -17,14 +17,6 @@ This is a silent killer I've dealt with before. A worker grabs a message, starts
 I've seen this happen with container restarts, out-of-memory kills, even developers accidentally killing processes during testing. The result is data inconsistency that's really hard to track down.
 
 My fix would be adding timeouts to track messages. When a worker takes a message, start a 30-second timer. If it doesn't confirm completion, assume the worker died and requeue the message. After a few timeout attempts, move it to a dead letter queue.
-
-### Database Race Conditions
-
-Multiple workers can hit the same database key simultaneously and overwrite each other's changes. I've debugged this exact issue before - you expect a value of 95 but get 74 because updates got lost in the race.
-
-The problem is the read-modify-write pattern isn't atomic. Worker A reads 50, Worker B reads 50, A calculates 55, B calculates 53, A writes 55, then B overwrites with 53. You lose Worker A's update completely.
-
-I'd add key-level locking so only one worker can modify a specific key at a time. Workers can still process different keys in parallel, so you don't lose performance, but you guarantee correctness.
 
 ## Performance Problems I'd Address
 
@@ -54,7 +46,7 @@ I'd create a proper config system with named constants and environment variable 
 
 When this breaks in production, you'll have no idea why. Which messages are slow? Which workers are inefficient? What errors are happening? You're flying blind.
 
-I've been called at 2 AM to debug "slow processing" with zero logs or metrics. It's miserable. I'd add structured logging, processing time metrics, error tracking, and regular status reports. Future you will thank past you.
+I've been called at 2 AM to debug "slow processing" with zero logs or metrics. It's miserable. I'd add structured logging, processing time metrics, error tracking, and regular status reports. 
 
 ### No Graceful Shutdown
 
@@ -62,10 +54,7 @@ Ctrl+C kills workers mid-operation, potentially corrupting data or leaving thing
 
 I'd add proper signal handling to finish in-flight work before shutting down. This makes deployments safe and prevents data loss during restarts.
 
-## What I'd Do First
-
-If I had to prioritize, I'd tackle these in order:
-
-1. **Add error handling to workers** - This will crash in production without it
-2. **Implement message timeouts** - Silent data loss is worse than obvious failures  
-3. **Fix the database race conditions** - Wrong results are really hard to debug later
+**With key locking, graceful shutdown needs to**:
+- Wait for all key locks to be released
+- Ensure no messages are left in inconsistent states
+- Properly clean up lock state before exit
